@@ -9,38 +9,46 @@ import io
 
 app = Flask(__name__)
 
+# Azureリソースへの認証
 credential = DefaultAzureCredential()
-key_vault_client = SecretClient(vault_url="https://<your-key-vault-name>.vault.azure.net", credential=credential)
-synapse_workspace_endpoint = "https://<your-synapse-workspace-name>.dev.azuresynapse.net"
-spark_client = SparkClient(synapse_workspace_endpoint, credential)
 
+# Azure Key Vault
+# Key Vaultへのアクセス
+key_vault_client = SecretClient(vault_url="https://<your-key-vault-name>.vault.azure.net", credential=credential)
+
+# Azure Synapse Spark
+# Synapse WorkspaceのSparkクライアントを作成
+synapse_workspace_endpoint = "https://<your-synapse-workspace-name>.dev.azuresynapse.net"
+spark_client = SparkClient(synapse_workspace_endpoint, credential=credential)
+
+# ログ設定
 logging.basicConfig(level=logging.DEBUG)
 
 @app.route('/api', methods=['POST'])
 def api():
     try:
-        # Check files in the received ZIP
+        # 受信したZIPファイルのチェック
         zip_file = get_zip_file_from_request()
         check_zip_file_contents(zip_file)
 
-        # Access secrets from Key Vault
+        # Key Vaultからシークレットを取得
         storage_account_name, storage_account_key = get_storage_account_secrets()
 
-        # Use user-assigned Managed ID to place the received CSV files in a container in Azure Data Lake Storage
+        # ユーザー割り当てマネージドIDを使用して、受信したCSVファイルをAzure Data Lake Storageのコンテナに配置
         upload_files_to_datalake(zip_file, storage_account_name, storage_account_key)
 
-        # Use user-assigned Managed ID to create a prediction model using dotData placed in Synapse Workspace's Spark pool
+        # ユーザー割り当てマネージドIDを使用して、Synapse WorkspaceのSparkプールに配置済みのdotDataを使用して予測モデルを作成
         create_and_run_spark_job()
 
-        logging.info('Prediction results...')  # replace with actual log message
+        logging.info('予測結果...')  # 実際のログメッセージに置き換えてください
 
         return jsonify({
-            'message': 'Prediction results...',  # replace with actual prediction results
+            'message': '予測結果...',  # 実際の予測結果に置き換えてください
             'status': 'success'
         })
     except Exception as e:
-        # Error handling
-        logging.error('An error occurred: %s', str(e))
+        # エラーハンドリング
+        logging.error('エラーが発生しました: %s', str(e))
 
         return jsonify({
             'message': str(e),
@@ -50,44 +58,53 @@ def api():
 
 def get_zip_file_from_request():
     if 'file' not in request.files:
-        raise ValueError('No file part')
+        raise ValueError('ファイルが見つかりません')
     file = request.files['file']
     if file.filename == '':
-        raise ValueError('No selected file')
+        raise ValueError('ファイルが選択されていません')
     if not zipfile.is_zipfile(file):
-        raise ValueError('File is not a ZIP file')
+        raise ValueError('ファイルがZIPファイルではありません')
     return zipfile.ZipFile(io.BytesIO(file.read()))
 
 
 def check_zip_file_contents(zip_file):
-    # Perform checks on the ZIP file here...
+    # ZIPファイルのチェックを実行してください
     pass
 
 
 def get_storage_account_secrets():
-    storage_account_name = key_vault_client.get_secret("<your-storage-account-name-secret-name>")
-    storage_account_key = key_vault_client.get_secret("<your-storage-account-key-secret-name>")
-    return storage_account_name.value, storage_account_key.value
+    # Key Vaultからストレージアカウントのシークレットを取得して、アカウント名とアカウントキーを返す
+    storage_account_name_secret = key_vault_client.get_secret("<your-storage-account-name-secret-name>")
+    storage_account_name = storage_account_name_secret.value
+
+    storage_account_key_secret = key_vault_client.get_secret("<your-storage-account-key-secret-name>")
+    storage_account_key = storage_account_key_secret.value
+
+    return storage_account_name, storage_account_key
 
 
 def upload_files_to_datalake(zip_file, storage_account_name, storage_account_key):
-    datalake_service_client = DataLakeServiceClient(account_url="{}://{}.dfs.core.windows.net".format(
-        "https", storage_account_name), credential=storage_account_key)
+    # Data Lake Storageのファイルシステムクライアントを作成
+    data_lake_service_client = DataLakeServiceClient(account_url=f"https://{storage_account_name}.dfs.core.windows.net",
+                                                     credential=DefaultAzureCredential())
 
-    file_system_client = datalake_service_client.get_file_system_client(file_system="<your-file-system-name>")
-
+    # ファイルをData Lake Storageにアップロード
+    file_system_client = data_lake_service_client.get_file_system_client("<your-file-system-name>")
     for file_info in zip_file.infolist():
-        if file_info.filename.endswith('.csv'):
-            with zip_file.open(file_info.filename) as file:
-                data = file.read()
+        if not file_info.is_file():
+            continue
 
-                directory_client = file_system_client.get_directory_client("<your-directory-name>")
-                file_client = directory_client.get_file_client(file_info.filename)
-                file_client.upload_data(data, overwrite=True)
+        with zip_file.open(file_info.filename) as file:
+            data = file.read()
+
+            directory_client = file_system_client.get_directory_client("<your-directory-name>")
+            file_client = directory_client.get_file_client(file_info.filename)
+            file_client.upload_data(data, overwrite=True)
 
 
 def create_and_run_spark_job():
-    job_config = SparkBatchJob()  # configure your Spark job here
+    # Synapse WorkspaceのSparkプールでSparkバッチジョブを作成・実行する
+    job_config = SparkBatchJob()  # ここでSparkジョブを設定してください
     spark_job = spark_client.spark_batch.create_spark_batch_job(job_config)
 
 
