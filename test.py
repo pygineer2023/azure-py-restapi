@@ -1,3 +1,5 @@
+import os
+
 from flask import Flask, request, jsonify
 from azure.identity import DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
@@ -14,11 +16,12 @@ credential = DefaultAzureCredential()
 
 # Azure Key Vault
 # Key Vaultへのアクセス
-key_vault_client = SecretClient(vault_url="https://<your-key-vault-name>.vault.azure.net", credential=credential)
+key_vault_url = os.environ["KEY_VAULT_URL"]
+key_vault_client = SecretClient(vault_url=key_vault_url, credential=credential)
 
 # Azure Synapse Spark
 # Synapse WorkspaceのSparkクライアントを作成
-synapse_workspace_endpoint = "https://<your-synapse-workspace-name>.dev.azuresynapse.net"
+synapse_workspace_endpoint = os.environ["SYNAPSE_WORKSPACE_ENDPOINT"]
 spark_client = SparkClient(synapse_workspace_endpoint, credential=credential)
 
 # ログ設定
@@ -73,11 +76,11 @@ def check_zip_file_contents(zip_file):
 
 
 def get_storage_account_secrets():
-    # Key Vaultからストレージアカウントのシークレットを取得して、アカウント名とアカウントキーを返す
-    storage_account_name_secret = key_vault_client.get_secret("<your-storage-account-name-secret-name>")
+    # Key Vaultからストレージアカウントのシークレットを取得して、アカウント名とアカウントキー
+    storage_account_name_secret = key_vault_client.get_secret(os.environ["STORAGE_ACCOUNT_NAME_SECRET_NAME"])
     storage_account_name = storage_account_name_secret.value
 
-    storage_account_key_secret = key_vault_client.get_secret("<your-storage-account-key-secret-name>")
+    storage_account_key_secret = key_vault_client.get_secret(os.environ["STORAGE_ACCOUNT_KEY_SECRET_NAME"])
     storage_account_key = storage_account_key_secret.value
 
     return storage_account_name, storage_account_key
@@ -89,7 +92,7 @@ def upload_files_to_datalake(zip_file, storage_account_name, storage_account_key
                                                      credential=DefaultAzureCredential())
 
     # ファイルをData Lake Storageにアップロード
-    file_system_client = data_lake_service_client.get_file_system_client("<your-file-system-name>")
+    file_system_client = data_lake_service_client.get_file_system_client(os.environ["FILE_SYSTEM_NAME"])
     for file_info in zip_file.infolist():
         if not file_info.is_file():
             continue
@@ -97,7 +100,7 @@ def upload_files_to_datalake(zip_file, storage_account_name, storage_account_key
         with zip_file.open(file_info.filename) as file:
             data = file.read()
 
-            directory_client = file_system_client.get_directory_client("<your-directory-name>")
+            directory_client = file_system_client.get_directory_client(os.environ["DIRECTORY_NAME"])
             file_client = directory_client.get_file_client(file_info.filename)
             file_client.upload_data(data, overwrite=True)
 
